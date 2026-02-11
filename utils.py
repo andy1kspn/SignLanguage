@@ -28,12 +28,26 @@ _mp_drawing = None
 _mp_drawing_styles = None
 
 
+def _patch_protobuf():
+    """
+    Patch de compatibilitate: protobuf 5.x a eliminat SymbolDatabase.GetPrototype()
+    care e folosit intern de mediapipe 0.10.14. Acest patch il readauga.
+    """
+    from google.protobuf import symbol_database
+    if not hasattr(symbol_database.SymbolDatabase, 'GetPrototype'):
+        from google.protobuf import message_factory
+        def _get_prototype(self, descriptor):
+            return message_factory.GetMessageClass(descriptor)
+        symbol_database.SymbolDatabase.GetPrototype = _get_prototype
+
+
 def _load_mediapipe():
     """Incarca MediaPipe la prima utilizare (lazy import)."""
     global _mp_holistic, _mp_drawing, _mp_drawing_styles
     if _mp_holistic is not None:
         return
 
+    _patch_protobuf()
     import mediapipe as mp
     _mp_holistic = mp.solutions.holistic
     _mp_drawing = mp.solutions.drawing_utils
