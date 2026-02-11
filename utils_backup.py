@@ -1,15 +1,14 @@
 """
-Utilități pentru extracția și procesarea landmark-urilor MediaPipe Holistic.
+Utilități pentru extracția și procesarea landmark-urilor MediaPipe.
 
 Pipeline de transformare coordonate -> vector de intrare:
-  1. MediaPipe Holistic proceseaza cadrul BGR -> detecteaza maini, pose, fata
+  1. MediaPipe proceseaza cadrul RGB -> detecteaza maini, pose, fata
   2. Se extrag coordonatele (x, y, z) normalizate [0, 1] pentru fiecare landmark
   3. Se aplica normalizare relativa la punctul de referinta (umar drept)
   4. Landmark-urile lipsa sunt completate cu zerouri
   5. Vectorul final per cadru: [mana_stanga(63) | mana_dreapta(63) | pose(18) | fata(60)]
 
-NOTA: Importurile MediaPipe sunt lazy (doar in functiile care au nevoie de camera).
-      Functiile de normalizare/padding functioneaza fara MediaPipe instalat.
+NOTA: Suportă atât MediaPipe 0.10.14 (Holistic) cât și 0.10.30+ (task API separat).
 """
 
 import numpy as np
@@ -24,54 +23,154 @@ from config import (
 #  MediaPipe — importuri lazy (doar pentru camera/vizualizare)
 # ═══════════════════════════════════════════════════════════════
 
-_mp_holistic = None
+_hand_landmarker = None
+_pose_landmarker = None
+_face_landmarker = None
 _mp_drawing = None
-_mp_drawing_styles = None
+_mp_version = None
 
 
 def _load_mediapipe():
     """Incarca MediaPipe la prima utilizare (lazy import)."""
-    global _mp_holistic, _mp_drawing, _mp_drawing_styles
-    if _mp_holistic is not None:
+    global _hand_landmarker, _pose_landmarker, _face_landmarker, _mp_drawing, _mp_version
+    if _hand_landmarker is not None:
         return
 
     try:
         import mediapipe as mp
-        _mp_holistic = mp.solutions.holistic
-        _mp_drawing = mp.solutions.drawing_utils
-        _mp_drawing_styles = mp.solutions.drawing_styles
-        print(f"✓ MediaPipe {mp.__version__} încărcat cu succes")
+        _mp_version = mp.__version__
+        
+        # MediaPipe 0.10.30+ folosește task API
+        from mediapipe.tasks import python
+        from mediapipe.tasks.python import vision
+        from mediapipe import solutions
+        from mediapipe.framework.formats import landmark_pb2
+        
+        # Configurare HandLandmarker
+        hand_options = vision.HandLandmarkerOptions(
+            base_options=python.BaseOptions(model_asset_path=None),
+            running_mode=vision.RunningMode.VIDEO,
+            num_hands=2,
+            min_hand_detection_confidence=0.5,
+            min_hand_presence_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+        
+        # Configurare PoseLandmarker
+        pose_options = vision.PoseLandmarkerOptions(
+            base_options=python.BaseOptions(model_asset_path=None),
+            running_mode=vision.RunningMode.VIDEO,
+            min_pose_detection_confidence=0.5,
+            min_pose_presence_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+        
+        # Configurare FaceLandmarker
+        face_options = vision.FaceLandmarkerOptions(
+            base_options=python.BaseOptions(model_asset_path=None),
+            running_mode=vision.RunningMode.VIDEO,
+            min_face_detection_confidence=0.5,
+            min_face_presence_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+        
+        _hand_landmarker = vision.HandLandmarker.create_from_options(hand_options)
+        _pose_landmarker = vision.PoseLandmarker.create_from_options(pose_options)
+        _face_landmarker = vision.FaceLandmarker.create_from_options(face_options)
+        _mp_drawing = solutions.drawing_utils
+        
+        print(f"✓ MediaPipe {_mp_version} încărcat cu succes (task API)")
+        
     except Exception as e:
         print(f"⚠ Eroare la încărcarea MediaPipe: {e}")
-        _mp_holistic = None
+        _hand_landmarker = None
+        _pose_landmarker = None
+        _face_landmarker = None
         _mp_drawing = None
-        _mp_drawing_styles = None
 
 
-def init_holistic(static_mode=False, min_detection_confidence=0.3,
-                  min_tracking_confidence=0.3):
-    """
-    Initializeaza MediaPipe Holistic cu parametrii optimizati pentru detectia faciei.
-    Parametri mai sensibili pentru o detectare mai buna a mimicii faciale.
-    """
-    _load_mediapipe()
-    if _mp_holistic is None:
-        return None
-    return _mp_holistic.Holistic(
-        static_image_mode=static_mode,
-        model_complexity=2,  # Model mai complex pentru detectie mai buna
-        smooth_landmarks=True,  # Smoothing pentru landmarks mai stabile
-        enable_segmentation=False,  # Dezactivat pentru performanta
-        smooth_segmentation=False,
-        refine_face_landmarks=True,  # IMPORTANT: Landmarks faciale rafinate
-        min_detection_confidence=min_detection_confidence,  # Mai sensibil
-        min_tracking_confidence=min_tracking_confidence,    # Mai sensibil
-    )
+class HolisticResults:
+    """Clasă pentru a stoca rezultatele de la toate landmarker-ele."""
+    def __init__(self):
+        self.left_hand_landmarks = None
+        self.right_hand_landmarks = None
+        self.pose_landmarks = None
+        self.face_landmarks = None
+
+
+class HolisticProcessor:
+    """Procesor unificat care combină Hand, Pose și Face landmarkers."""
+    
+    def __init__(self):
+        _load_mediapipe()
+        self.frame_count = 0
+    
+    def process(self, image_rgb):
+        """Procesează un frame RGB și returnează rezultate unificate."""
+        if _hand_landmarker is None:
+            return None
+        
+        self.frame_count += 1
+        timestamp_ms = self.frame_count * 33  # ~30 FPS
+        
+        # Convertește la MediaPipe Image
+        import mediapipe as mp
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
+        
+        results = HolisticResults()
+        
+        try:
+            # Detectează mâini
+            hand_result = _hand_landmarker.detect_for_video(mp_image, timestamp_ms)
+            if hand_result.hand_landmarks and len(hand_result.hand_landmarks) > 0:
+                # Identifică mâna stângă și dreaptă
+                for idx, handedness in enumerate(hand_result.handedness):
+                    if idx < len(hand_result.hand_landmarks):
+                        hand_label = handedness[0].category_name
+                        if hand_label == "Left":
+                            results.left_hand_landmarks = hand_result.hand_landmarks[idx]
+                        elif hand_label == "Right":
+                            results.right_hand_landmarks = hand_result.hand_landmarks[idx]
+            
+            # Detectează pose
+            pose_result = _pose_landmarker.detect_for_video(mp_image, timestamp_ms)
+            if pose_result.pose_landmarks and len(pose_result.pose_landmarks) > 0:
+                results.pose_landmarks = pose_result.pose_landmarks[0]
+            
+            # Detectează față
+            face_result = _face_landmarker.detect_for_video(mp_image, timestamp_ms)
+            if face_result.face_landmarks and len(face_result.face_landmarks) > 0:
+                results.face_landmarks = face_result.face_landmarks[0]
+                
+        except Exception as e:
+            print(f"⚠ Eroare procesare: {e}")
+            return None
+        
+        return results
+    
+    def close(self):
+        """Închide toate landmarker-ele."""
+        global _hand_landmarker, _pose_landmarker, _face_landmarker
+        if _hand_landmarker:
+            _hand_landmarker.close()
+        if _pose_landmarker:
+            _pose_landmarker.close()
+        if _face_landmarker:
+            _face_landmarker.close()
+        _hand_landmarker = None
+        _pose_landmarker = None
+        _face_landmarker = None
+
+
+def init_holistic(static_mode=False, min_detection_confidence=0.5,
+                  min_tracking_confidence=0.5):
+    """Initializeaza procesor unificat pentru landmark detection."""
+    return HolisticProcessor()
 
 
 def extract_landmarks(results):
     """
-    Extrage si concateneaza landmark-urile din rezultatele MediaPipe Holistic.
+    Extrage si concateneaza landmark-urile din rezultatele MediaPipe.
 
     Transformarea coordonatelor:
       - MediaPipe returneaza (x, y, z) normalizate:
@@ -86,12 +185,12 @@ def extract_landmarks(results):
     # Dacă results este None (MediaPipe nu e disponibil), returnează vector gol
     if results is None:
         return np.zeros(TOTAL_FEATURES, dtype=np.float32)
-    
+
     # Mana stanga — 21 landmarks x 3
     if results.left_hand_landmarks:
         left_hand = np.array([
             [lm.x, lm.y, lm.z]
-            for lm in results.left_hand_landmarks.landmark
+            for lm in results.left_hand_landmarks
         ]).flatten()
     else:
         left_hand = np.zeros(NUM_HAND_LANDMARKS * COORDS_PER_LANDMARK)
@@ -100,7 +199,7 @@ def extract_landmarks(results):
     if results.right_hand_landmarks:
         right_hand = np.array([
             [lm.x, lm.y, lm.z]
-            for lm in results.right_hand_landmarks.landmark
+            for lm in results.right_hand_landmarks
         ]).flatten()
     else:
         right_hand = np.zeros(NUM_HAND_LANDMARKS * COORDS_PER_LANDMARK)
@@ -108,9 +207,9 @@ def extract_landmarks(results):
     # Pose (trunchi superior) — 6 landmarks x 3
     if results.pose_landmarks:
         pose = np.array([
-            [results.pose_landmarks.landmark[i].x,
-             results.pose_landmarks.landmark[i].y,
-             results.pose_landmarks.landmark[i].z]
+            [results.pose_landmarks[i].x,
+             results.pose_landmarks[i].y,
+             results.pose_landmarks[i].z]
             for i in POSE_INDICES
         ]).flatten()
     else:
@@ -119,9 +218,9 @@ def extract_landmarks(results):
     # Fata (expresii) — 20 landmarks x 3
     if results.face_landmarks:
         face = np.array([
-            [results.face_landmarks.landmark[i].x,
-             results.face_landmarks.landmark[i].y,
-             results.face_landmarks.landmark[i].z]
+            [results.face_landmarks[i].x,
+             results.face_landmarks[i].y,
+             results.face_landmarks[i].z]
             for i in FACE_INDICES
         ]).flatten()
     else:
@@ -134,6 +233,8 @@ def extract_landmarks(results):
         f"Dimensiune incorecta: {feature_vector.shape[0]} != {TOTAL_FEATURES}"
     )
     return feature_vector
+
+
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -186,110 +287,40 @@ def normalize_sequence(sequence):
 
 
 def draw_landmarks_on_frame(frame, results):
-    """
-    Deseneaza landmark-urile detectate pe cadru pentru feedback vizual.
-    Versiune imbunatatita cu analiza detaliata a mimicii faciale.
-    """
+    """Deseneaza landmark-urile detectate pe cadru pentru feedback vizual."""
     _load_mediapipe()
     
     # Dacă results este None sau drawing nu e disponibil, returnează frame-ul nemodificat
     if results is None or _mp_drawing is None:
         return frame
     
-    # Pose - cu linii mai groase pentru vizibilitate
+    # Pose
     if results.pose_landmarks:
         _mp_drawing.draw_landmarks(
             frame, results.pose_landmarks, _mp_holistic.POSE_CONNECTIONS,
-            landmark_drawing_spec=_mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=3, circle_radius=4),
-            connection_drawing_spec=_mp_drawing.DrawingSpec(color=(0, 200, 0), thickness=3)
+            landmark_drawing_spec=_mp_drawing_styles.get_default_pose_landmarks_style()
         )
-    
-    # Mana stanga - culoare distincta
+    # Mana stanga
     if results.left_hand_landmarks:
         _mp_drawing.draw_landmarks(
             frame, results.left_hand_landmarks, _mp_holistic.HAND_CONNECTIONS,
-            landmark_drawing_spec=_mp_drawing.DrawingSpec(color=(121, 22, 76), thickness=3, circle_radius=3),
-            connection_drawing_spec=_mp_drawing.DrawingSpec(color=(121, 44, 250), thickness=2)
+            _mp_drawing.DrawingSpec(color=(121, 22, 76), thickness=2, circle_radius=2),
+            _mp_drawing.DrawingSpec(color=(121, 44, 250), thickness=2, circle_radius=1),
         )
-    
-    # Mana dreapta - culoare distincta
+    # Mana dreapta
     if results.right_hand_landmarks:
         _mp_drawing.draw_landmarks(
             frame, results.right_hand_landmarks, _mp_holistic.HAND_CONNECTIONS,
-            landmark_drawing_spec=_mp_drawing.DrawingSpec(color=(245, 117, 66), thickness=3, circle_radius=3),
-            connection_drawing_spec=_mp_drawing.DrawingSpec(color=(245, 66, 230), thickness=2)
+            _mp_drawing.DrawingSpec(color=(245, 117, 66), thickness=2, circle_radius=2),
+            _mp_drawing.DrawingSpec(color=(245, 66, 230), thickness=2, circle_radius=1),
         )
-    
-    # FATA - ANALIZA DETALIATA A MIMICII
+    # Fata (simplificat — doar conturul)
     if results.face_landmarks:
-        # 1. Conturul fetei - galben intens
         _mp_drawing.draw_landmarks(
             frame, results.face_landmarks, _mp_holistic.FACEMESH_CONTOURS,
             landmark_drawing_spec=None,
-            connection_drawing_spec=_mp_drawing.DrawingSpec(color=(0, 255, 255), thickness=2)
+            connection_drawing_spec=_mp_drawing_styles.get_default_face_mesh_contours_style()
         )
-        
-        # 2. Toate landmark-urile faciale cu puncte mici pentru detalii
-        _mp_drawing.draw_landmarks(
-            frame, results.face_landmarks, None,  # Fara conexiuni, doar puncte
-            landmark_drawing_spec=_mp_drawing.DrawingSpec(color=(255, 255, 255), thickness=1, circle_radius=1),
-            connection_drawing_spec=None
-        )
-        
-        # 3. Puncte cheie individuale pentru analiza detaliata
-        h, w, _ = frame.shape
-        landmarks = results.face_landmarks.landmark
-        
-        # Puncte importante pentru mimica (indici MediaPipe Face Mesh)
-        key_points = {
-            # Colturile ochilor - MAGENTA
-            33: (255, 0, 255),   # colt exterior ochi stang
-            133: (255, 0, 255),  # colt interior ochi stang  
-            362: (255, 0, 255),  # colt exterior ochi drept
-            263: (255, 0, 255),  # colt interior ochi drept
-            
-            # Pleoapele pentru detectarea clipirii - CYAN
-            159: (255, 255, 0),  # pleoapă sus ochi stâng
-            145: (255, 255, 0),  # pleoapă jos ochi stâng
-            386: (255, 255, 0),  # pleoapă sus ochi drept
-            374: (255, 255, 0),  # pleoapă jos ochi drept
-            
-            # Colturile gurii - ROSU INTENS
-            61: (0, 0, 255),     # colt stang gura
-            291: (0, 0, 255),    # colt drept gura
-            13: (0, 0, 255),     # centru buza de jos
-            14: (0, 0, 255),     # centru buza de sus
-            
-            # Varful nasului - CYAN
-            1: (255, 255, 0),    # varf nas
-            2: (255, 255, 0),    # baza nas
-            
-            # Sprancenele - VERDE
-            70: (0, 255, 0),     # spranceana stanga
-            63: (0, 255, 0),
-            105: (0, 255, 0),
-            66: (0, 255, 0),
-            107: (0, 255, 0),
-            336: (0, 255, 0),    # spranceana dreapta
-            296: (0, 255, 0),
-            334: (0, 255, 0),
-            293: (0, 255, 0),
-            300: (0, 255, 0),
-            
-            # Puncte pentru inclinarea capului
-            175: (0, 255, 255),  # barbia
-        }
-        
-        # Deseneaza punctele cheie cu cercuri mari si colorate
-        for idx, color in key_points.items():
-            if idx < len(landmarks):
-                x = int(landmarks[idx].x * w)
-                y = int(landmarks[idx].y * h)
-                # Cerc mare pentru vizibilitate
-                cv2.circle(frame, (x, y), 4, color, -1)
-                # Contur negru pentru contrast
-                cv2.circle(frame, (x, y), 5, (0, 0, 0), 1)
-    
     return frame
 
 
