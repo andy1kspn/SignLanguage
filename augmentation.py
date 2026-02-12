@@ -11,6 +11,7 @@ Tehnici implementate:
   4. Oglindire orizontală — inversare stânga-dreapta (cu swap mâini)
   5. Variație temporală — accelerare/decelerare a execuției semnului
   6. Dropout de landmarks — simulează ocluzii parțiale
+  test
 
 Transfer Learning:
   - Se antrenează pe WLASL (Word-Level ASL) pentru semne similare

@@ -16,7 +16,7 @@ Avantajele salvării coordonatelor vs. video brut:
 Utilizare:
   python collect_data.py --sign buna --samples 50
   python collect_data.py --sign multumesc --samples 30
-  python collect_data.py --all  # colectează pentru toate semnele
+  python collect_data.py --all  # colectează pentru toate semnele sos
 """
 
 import os
