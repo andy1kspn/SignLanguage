@@ -64,7 +64,7 @@ class AccessibleMenu:
         self.selected_option = 0
         self.options = [
             "Traducere Semne -> Text (Camera Live)",
-            "Mod Demo - Testare Camera",
+            "Mod Demo Imbunatatit - Testare Camera",
             "Iesire din Aplicatie"
         ]
         
@@ -255,7 +255,7 @@ class AccessibleMenu:
                     text = text.lower().strip()
                     
                     # Filtreaza ecoul aplicatiei
-                    app_message_words = ['bun', 'venit', 'optiuni', 'traducere', 'demo', 'iesire']
+                    app_message_words = ['bun', 'venit', 'optiuni', 'traducere', 'demo', 'iesire', 'imbunatatit']
                     has_valid_command = any(cmd in text for cmd in ['1', '2', '3', 'unu', 'doi', 'trei', 'stop', 'start', 'ajutor'])
                     
                     word_count = len(text.split())
@@ -316,17 +316,17 @@ class AccessibleMenu:
             return
         
         if '2' in command or 'doi' in command or command.startswith('do'):
-            self._select_and_execute(1, "Demo")
+            self._select_and_execute(1, "Demo Imbunatatit")
             return
         
-        if '3' in command or 'trei' in command:
+        if '3' in command or 'trei' in command or command.startswith('tr') or 'iesire' in command or 'exit' in command:
             self._select_and_execute(2, "Iesire")
             return
         
         # Ajutor
         if 'ajutor' in command or 'help' in command:
             self.stop_audio(silent=True)
-            self.speak("Trei optiuni. Unu: traducere. Doi: demo. Trei: iesire.", priority=True)
+            self.speak("Trei optiuni. Unu: traducere. Doi: demo imbunatatit. Trei: iesire.", priority=True)
             return
         
         print(f"Comanda necunoscuta: '{command}'")
@@ -798,7 +798,7 @@ class AccessibleMenu:
         # Mesaj de bun venit optimizat fara diacritice
         welcome_msg = "Bun venit! Aveti trei optiuni. " \
                      "Unu: Traducere semne in text. " \
-                     "Doi: Mod demo. " \
+                     "Doi: Mod demo imbunatatit. " \
                      "Trei: Iesire. " \
                      "Spuneti numarul dorit sau faceti click."
         
@@ -850,7 +850,7 @@ class AccessibleMenu:
                 self._select_and_execute(0, "Traducere")
             
             elif key == ord('2'):
-                self._select_and_execute(1, "Demo")
+                self._select_and_execute(1, "Demo Imbunatatit")
             
             elif key == ord('3'):
                 self._select_and_execute(2, "Iesire")
@@ -882,7 +882,7 @@ class AccessibleMenu:
         if vocal:
             print("OK Comenzi vocale:")
             print("  '1' / 'unu' -> Traducere")
-            print("  '2' / 'doi' -> Demo")
+            print("  '2' / 'doi' -> Demo Imbunatatit")
             print("  '3' / 'trei' -> Iesire")
             print("  'stop' -> Opreste audio")
             print("  'start' -> Porneste audio")
@@ -921,13 +921,13 @@ class AccessibleMenu:
             return True
         
         elif self.selected_option == 1:
-            # Demo mode
+            # Demo mode imbunatatit
             print("\n" + "="*70)
-            print("PORNIRE: Mod Demo - Testare Camera")
+            print("PORNIRE: Mod Demo Imbunatatit - Testare Camera")
             print("="*70 + "\n")
             time.sleep(0.2)
             try:
-                result = subprocess.run([sys.executable, "realtime.py", "--demo"])
+                result = subprocess.run([sys.executable, "demo_enhanced.py"])
                 if result.returncode != 0:
                     print(f"ATENTIE Aplicatia s-a inchis cu cod: {result.returncode}")
             except KeyboardInterrupt:
