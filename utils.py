@@ -1,5 +1,5 @@
 """
-Utilitati pentru extractia si procesarea landmark-urilor MediaPipe Holistic.
+Utilități pentru extracția și procesarea landmark-urilor MediaPipe Holistic.
 
 Pipeline de transformare coordonate -> vector de intrare:
   1. MediaPipe Holistic proceseaza cadrul BGR -> detecteaza maini, pose, fata

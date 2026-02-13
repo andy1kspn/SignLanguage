@@ -217,3 +217,8 @@ __marimo__/
 
 recordings/
 screenshots/
+.ai 
+.idea
+.claude
+.kiro
+.copilot
