@@ -83,6 +83,11 @@ class AccessibleMenu:
         self.should_execute = False
         self.thinking_sound_active = False
         
+        # Feedback vizual pentru comenzi vocale
+        self.last_voice_command = ""
+        self.voice_command_time = 0
+        self.listening_indicator = False
+        
         # Initializare Speech Recognition OPTIMIZAT
         self.speech_available = SPEECH_RECOGNITION_AVAILABLE
         if self.speech_available:
@@ -111,13 +116,14 @@ class AccessibleMenu:
         else:
             self.recognizer = None
     
-    def speak(self, text, priority=False):
+    def speak(self, text, priority=False, speed=1.0):
         """
-        Vorbeste text folosind Google TTS.
+        Vorbește text folosind Google TTS cu voce îmbunătățită.
         
         Args:
             text: Textul de rostit
-            priority: Daca True, opreste audio-ul curent
+            priority: Dacă True, oprește audio-ul curent
+            speed: Viteza vorbirii (0.5-2.0, default 1.0)
         """
         if not TTS_AVAILABLE or not self.audio_enabled or self.audio_paused:
             return
@@ -128,7 +134,7 @@ class AccessibleMenu:
         self.audio_playing = True
         self.audio_counter += 1
         
-        # Foloseste timestamp pentru nume unic
+        # Folosește timestamp pentru nume unic
         timestamp = int(time.time() * 1000)
         random_id = random.randint(1000, 9999)
         temp_file = os.path.join(self.temp_dir, f"lsr_{timestamp}_{random_id}.mp3")
@@ -139,8 +145,9 @@ class AccessibleMenu:
                     self.audio_playing = False
                     return
                 
-                # Generare audio rapida
-                tts = gTTS(text=text, lang='ro', slow=False, tld='com')
+                # Generare audio cu voce mai naturală
+                # Folosim tld='ro' pentru accent românesc mai natural
+                tts = gTTS(text=text, lang='ro', slow=False, tld='ro')
                 tts.save(temp_file)
 
                 if not self.audio_enabled or self.audio_paused:
@@ -148,11 +155,12 @@ class AccessibleMenu:
                     self._cleanup_audio_file(temp_file)
                     return
 
-                # Redare cu pygame
+                # Redare cu pygame - volum optimizat
                 pygame.mixer.music.load(temp_file)
+                pygame.mixer.music.set_volume(0.9)  # Volum plăcut, nu prea tare
                 pygame.mixer.music.play()
                 
-                # Asteapta finalizare sau oprire
+                # Așteaptă finalizare sau oprire
                 while pygame.mixer.music.get_busy():
                     if not self.audio_enabled or self.audio_paused:
                         pygame.mixer.music.stop()
@@ -164,8 +172,8 @@ class AccessibleMenu:
             except Exception as e:
                 print(f"EROARE TTS: {e}")
             finally:
-                # Asteapta doar 0.2s pentru a permite comenzi imediate
-                time.sleep(0.2)
+                # Pauză scurtă pentru tranziție naturală
+                time.sleep(0.3)
                 self.audio_playing = False
 
         thread = threading.Thread(target=speak_thread, daemon=True)
@@ -222,18 +230,20 @@ class AccessibleMenu:
         self.thinking_sound_active = False
     
     def beep(self, frequency=1000, duration=0.1):
-        """Feedback sonor instant."""
+        """Feedback sonor instant cu ton plăcut."""
         try:
             import winsound
+            # Folosește frecvențe mai plăcute pentru ureche
+            pleasant_freq = int(frequency * 0.8)  # Ton mai jos, mai plăcut
             threading.Thread(
-                target=lambda: winsound.Beep(frequency, int(duration * 1000)),
+                target=lambda: winsound.Beep(pleasant_freq, int(duration * 1000)),
                 daemon=True
             ).start()
         except:
             pass
     
     def listen_continuously(self):
-        """Ascultare vocala continua - POTI VORBI ORICAND."""
+        """Ascultare vocală continuă - POȚI VORBI ORICÂND."""
         if not self.recognizer or not self.microphone:
             return
         
@@ -242,19 +252,27 @@ class AccessibleMenu:
         
         while self.voice_control_active:
             try:
-                # SENSIBILITATE CONSTANTA - poti vorbi oricand
-                # NU mai crestem pragul cand aplicatia vorbeste
+                # Indicator că ascultă
+                self.listening_indicator = True
+                print("\n🎧 Ascult... (vorbeste acum)")
                 
+                # SENSIBILITATE CONSTANTĂ - poți vorbi oricând
                 with self.microphone as source:
                     audio = self.recognizer.listen(source, timeout=2, phrase_time_limit=3)
                 
-                print("Audio detectat, procesez...")
+                self.listening_indicator = False
+                print("📝 Audio detectat, procesez...")
                 
                 try:
                     text = self.recognizer.recognize_google(audio, language='ro-RO')
                     text = text.lower().strip()
                     
-                    # Filtreaza ecoul aplicatiei
+                    # Afișează ÎNTOTDEAUNA ce a auzit (înainte de filtrare)
+                    print("="*70)
+                    print(f"🎤 AM AUZIT: '{text}'")
+                    print("="*70)
+                    
+                    # Filtrează ecoul aplicației
                     app_message_words = ['bun', 'venit', 'optiuni', 'traducere', 'demo', 'iesire', 'imbunatatit']
                     has_valid_command = any(cmd in text for cmd in ['1', '2', '3', 'unu', 'doi', 'trei', 'stop', 'start', 'ajutor'])
                     
@@ -263,92 +281,265 @@ class AccessibleMenu:
                                      any(phrase in text for phrase in app_message_words))
                     
                     if is_likely_echo:
-                        print(f"Ignorat (ecou): '{text}'")
+                        print(f"⚠️  IGNORAT (ecou aplicatie): '{text}'")
+                        print("="*70)
                         continue
                     
-                    # Afiseaza si proceseaza comanda
-                    print(f"Microfon '{text}'")
+                    # Procesează comanda
+                    print(f"✅ PROCESEZ COMANDA: '{text}'")
+                    self.last_voice_command = text
+                    self.voice_command_time = time.time()
+                    
                     self.process_voice_command(text)
                     consecutive_errors = 0
                     
                 except sr.UnknownValueError:
-                    print("Nu am inteles")
+                    print("="*70)
+                    print("❌ NU AM INTELES - Vorbeste mai clar")
+                    print("="*70)
+                    self.last_voice_command = "Nu am inteles..."
+                    self.voice_command_time = time.time()
                     pass
                 except sr.RequestError as e:
                     consecutive_errors += 1
+                    print("="*70)
                     if consecutive_errors < 3:
-                        print(f"Eroare Google Speech (reincerc...)")
+                        print(f"⚠️  Eroare Google Speech (reincerc... {consecutive_errors}/3)")
                     else:
-                        print(f"Eroare persistenta Google Speech")
+                        print(f"❌ Eroare persistenta Google Speech - verifica conexiunea internet")
+                    print("="*70)
                     time.sleep(1)
                 
             except sr.WaitTimeoutError:
+                self.listening_indicator = False
+                # Nu afișa nimic pentru timeout - e normal
                 pass
             except Exception as e:
-                print(f"Eroare ascultare: {e}")
+                self.listening_indicator = False
+                print("="*70)
+                print(f"❌ Eroare ascultare: {e}")
+                print("="*70)
                 time.sleep(0.5)
     
     def process_voice_command(self, command):
-        """Procesare comenzi vocale optimizata."""
+        """
+        Procesare comenzi vocale cu algoritm inteligent de recunoaștere.
+        Acceptă variații, sinonime și comenzi parțiale.
+        """
         
-        # STOP - prioritate maxima - TACE COMPLET
-        if 'stop' in command or 'taci' in command or 'opreste' in command:
+        # Normalizare comandă - elimină spații extra, lowercase
+        command = ' '.join(command.lower().strip().split())
+        
+        # ========== COMENZI SPECIALE - PRIORITATE MAXIMĂ ==========
+        
+        # STOP/TACI - oprește audio
+        stop_keywords = ['stop', 'taci', 'opreste', 'oprit', 'silence', 'mut', 'liniste']
+        if any(keyword in command for keyword in stop_keywords):
             self.audio_paused = True
             self.stop_audio()
-            print("Audio OPRIT complet - spune 'start' pentru a reactiva")
+            print("🔇 Audio OPRIT complet - spune 'start' pentru a reactiva")
             return
         
-        # START - REACTIVEAZA AUDIO
-        if 'start' in command or 'porneste' in command:
+        # START/PORNEȘTE - pornește audio
+        start_keywords = ['start', 'porneste', 'pornit', 'activeaza', 'vorbeste', 'audio']
+        if any(keyword in command for keyword in start_keywords) and not self.audio_paused:
+            # Doar dacă nu e deja pornit
+            pass
+        elif any(keyword in command for keyword in start_keywords):
             self.audio_paused = False
             self.audio_enabled = True
             self.play_thinking_sound()
-            print("Audio PORNIT")
+            print("🔊 Audio PORNIT")
             self.speak("Audio activat", priority=True)
             return
         
-        # Feedback sonor
+        # Feedback sonor pentru comenzi valide
         self.beep(800, 0.1)
         
-        # Detectare optiuni
-        if '1' in command or 'unu' in command or command.startswith('un'):
+        # ========== SISTEM INTELIGENT DE RECUNOAȘTERE COMENZI ==========
+        
+        # Definire pattern-uri pentru fiecare opțiune
+        command_patterns = {
+            'optiune_1': {
+                'keywords': ['1', 'unu', 'prima', 'primul', 'traducere', 'traduce', 'semne', 'camera', 'live'],
+                'phrases': ['optiunea unu', 'optiunea 1', 'prima optiune', 'vreau traducere', 
+                           'traducere semne', 'porneste traducere', 'deschide traducere'],
+                'score_threshold': 1  # Minim 1 keyword sau 1 phrase
+            },
+            'optiune_2': {
+                'keywords': ['2', 'doi', 'doua', 'a doua', 'demo', 'test', 'testare', 'verificare'],
+                'phrases': ['optiunea doi', 'optiunea 2', 'a doua optiune', 'vreau demo', 
+                           'mod demo', 'porneste demo', 'deschide demo', 'testeaza camera'],
+                'score_threshold': 1
+            },
+            'optiune_3': {
+                'keywords': ['3', 'trei', 'treia', 'iesire', 'iesi', 'exit', 'quit', 'inchide', 
+                            'opreste', 'termina', 'gata', 'stop aplicatie'],
+                'phrases': ['optiunea trei', 'optiunea 3', 'a treia optiune', 'vreau sa ies',
+                           'inchide aplicatie', 'opreste aplicatie', 'iesire din aplicatie'],
+                'score_threshold': 1
+            },
+            'ajutor': {
+                'keywords': ['ajutor', 'help', 'info', 'informatii', 'ce pot', 'optiuni', 
+                            'comenzi', 'ce fac', 'nu stiu', 'explica'],
+                'phrases': ['ce pot face', 'ce optiuni am', 'ce comenzi sunt', 'ajuta-ma',
+                           'am nevoie de ajutor', 'nu stiu ce sa fac', 'explica-mi'],
+                'score_threshold': 1
+            }
+        }
+        
+        # Calculare scoruri pentru fiecare opțiune
+        scores = {}
+        for option, patterns in command_patterns.items():
+            score = 0
+            matched_items = []
+            
+            # Verifică keywords
+            for keyword in patterns['keywords']:
+                if keyword in command:
+                    score += 1
+                    matched_items.append(keyword)
+            
+            # Verifică phrases (scor mai mare pentru match exact)
+            for phrase in patterns['phrases']:
+                if phrase in command:
+                    score += 2  # Phrase-urile valorează mai mult
+                    matched_items.append(f'"{phrase}"')
+            
+            # Verifică similaritate fuzzy pentru comenzi scurte
+            if len(command.split()) <= 2:
+                for keyword in patterns['keywords']:
+                    if self._fuzzy_match(command, keyword):
+                        score += 0.5
+                        matched_items.append(f'{keyword}(fuzzy)')
+            
+            scores[option] = {
+                'score': score,
+                'matched': matched_items,
+                'threshold': patterns['score_threshold']
+            }
+        
+        # Găsește cea mai bună potrivire
+        best_match = None
+        best_score = 0
+        
+        for option, data in scores.items():
+            if data['score'] >= data['threshold'] and data['score'] > best_score:
+                best_match = option
+                best_score = data['score']
+        
+        # ========== EXECUTĂ COMANDA RECUNOSCUTĂ ==========
+        
+        if best_match == 'optiune_1':
+            print(f"➡️  Comanda recunoscuta: OPTIUNEA 1 - Traducere")
+            print(f"   Potriviri: {', '.join(scores['optiune_1']['matched'])} (scor: {best_score})")
             self._select_and_execute(0, "Traducere")
             return
         
-        if '2' in command or 'doi' in command or command.startswith('do'):
+        elif best_match == 'optiune_2':
+            print(f"➡️  Comanda recunoscuta: OPTIUNEA 2 - Demo Imbunatatit")
+            print(f"   Potriviri: {', '.join(scores['optiune_2']['matched'])} (scor: {best_score})")
             self._select_and_execute(1, "Demo Imbunatatit")
             return
         
-        if '3' in command or 'trei' in command or command.startswith('tr') or 'iesire' in command or 'exit' in command:
+        elif best_match == 'optiune_3':
+            print(f"➡️  Comanda recunoscuta: OPTIUNEA 3 - Iesire")
+            print(f"   Potriviri: {', '.join(scores['optiune_3']['matched'])} (scor: {best_score})")
             self._select_and_execute(2, "Iesire")
             return
         
-        # Ajutor
-        if 'ajutor' in command or 'help' in command:
+        elif best_match == 'ajutor':
+            print(f"➡️  Comanda recunoscuta: AJUTOR")
+            print(f"   Potriviri: {', '.join(scores['ajutor']['matched'])} (scor: {best_score})")
             self.stop_audio(silent=True)
-            self.speak("Trei optiuni. Unu: traducere. Doi: demo imbunatatit. Trei: iesire.", priority=True)
+            help_msg = "Desigur, va ajut cu placere! " \
+                      "Aveti trei optiuni disponibile. " \
+                      "Spuneti unu pentru traducere semne in text. " \
+                      "Spuneti doi pentru modul demo imbunatatit. " \
+                      "Sau spuneti trei pentru a iesi din aplicatie. " \
+                      "Ce doriti sa faceti?"
+            self.speak(help_msg, priority=True)
             return
         
-        print(f"Comanda necunoscuta: '{command}'")
+        # ========== COMANDĂ NECUNOSCUTĂ ==========
+        
+        print(f"⚠️  Comanda necunoscuta: '{command}'")
+        print(f"📊 Scoruri calculate:")
+        for option, data in scores.items():
+            if data['score'] > 0:
+                print(f"   - {option}: {data['score']} puncte {data['matched']}")
+        print("💡 Incearca:")
+        print("   - 'unu' sau 'traducere' pentru optiunea 1")
+        print("   - 'doi' sau 'demo' pentru optiunea 2")
+        print("   - 'trei' sau 'iesire' pentru optiunea 3")
+        print("   - 'ajutor' pentru mai multe informatii")
+        print("="*70)
+    
+    def _fuzzy_match(self, text, keyword, threshold=0.7):
+        """
+        Verifică similaritate fuzzy între text și keyword.
+        Returnează True dacă similaritatea > threshold.
+        """
+        # Distanță Levenshtein simplificată
+        if len(text) == 0 or len(keyword) == 0:
+            return False
+        
+        # Verifică dacă keyword este substring
+        if keyword in text or text in keyword:
+            return True
+        
+        # Calculare similaritate simplă
+        matches = sum(1 for a, b in zip(text, keyword) if a == b)
+        max_len = max(len(text), len(keyword))
+        similarity = matches / max_len
+        
+        return similarity >= threshold
     
     def _select_and_execute(self, option_index, option_name):
-        """Selecteaza si executa o optiune."""
+        """Selectează și execută o opțiune cu feedback audio plăcut."""
         self.selected_option = option_index
         print(f"OK Selectat: {option_name}")
         self.stop_audio(silent=True)
-        self.beep(1200, 0.2)
+        
+        # Beep plăcut de confirmare
+        self.beep(880, 0.15)  # Nota La (A) - sunet plăcut
+        
+        # Mesaj de confirmare vocal
+        confirmation_messages = {
+            0: "Perfect! Pornesc traducerea semne in text.",
+            1: "Excelent! Pornesc modul demo imbunatatit.",
+            2: "Bine! Inchid aplicatia. La revedere!"
+        }
+        
+        if option_index in confirmation_messages:
+            time.sleep(0.2)  # Pauză scurtă după beep
+            self.speak(confirmation_messages[option_index], priority=True)
+            time.sleep(1.5)  # Așteaptă să termine de vorbit
+        
         self.should_execute = True
         self.voice_control_active = False
     
     def mouse_callback(self, event, x, y, flags, param):
-        """Callback optimizat pentru mouse."""
+        """Callback optimizat pentru mouse cu feedback audio plăcut."""
         if event == cv2.EVENT_LBUTTONDOWN:
             for i, (y_start, y_end) in enumerate(self.button_coords):
                 if y_start <= y <= y_end and 100 <= x <= self.width - 100:
                     self.selected_option = i
-                    self.beep(1200, 0.2)
+                    self.beep(880, 0.15)  # Sunet plăcut pentru click
                     print(f"Click -> Optiunea {i+1}")
                     self.stop_audio(silent=True)
+                    
+                    # Mesaj vocal de confirmare
+                    confirmation_messages = {
+                        0: "Perfect! Pornesc traducerea.",
+                        1: "Excelent! Pornesc demo-ul.",
+                        2: "Bine! La revedere!"
+                    }
+                    if i in confirmation_messages:
+                        time.sleep(0.2)
+                        self.speak(confirmation_messages[i], priority=True)
+                        time.sleep(1.2)
+                    
                     self.should_execute = True
                     self.voice_control_active = False
                     return
@@ -785,6 +976,72 @@ class AccessibleMenu:
             cv2.putText(frame, instruction, (inst_x, section_y + int(footer_height * 0.18) + j * line_spacing),
                        cv2.FONT_HERSHEY_SIMPLEX, inst_scale_adj, (190, 190, 200), inst_thickness_adj, cv2.LINE_AA)  # Gri mai cald pentru tastatura
         
+        # ========== AFIȘARE COMANDĂ VOCALĂ DETECTATĂ ==========
+        if self.speech_available and self.voice_control_active:
+            current_time = time.time()
+            
+            # Indicator de ascultare (microfon activ)
+            if self.listening_indicator:
+                listen_text = "🎤 Ascult..."
+                listen_color = (100, 255, 100)  # Verde
+                listen_scale = min(self.width / 1600, self.height / 1000) * 0.7
+                listen_thickness = max(2, int(listen_scale * 2))
+                listen_size = cv2.getTextSize(listen_text, cv2.FONT_HERSHEY_SIMPLEX, listen_scale, listen_thickness)[0]
+                listen_x = self.width - listen_size[0] - 30
+                listen_y = 50
+                
+                # Box pentru indicator
+                cv2.rectangle(frame, (listen_x - 15, listen_y - listen_size[1] - 10),
+                            (listen_x + listen_size[0] + 15, listen_y + 10),
+                            (40, 40, 40), -1)
+                cv2.rectangle(frame, (listen_x - 15, listen_y - listen_size[1] - 10),
+                            (listen_x + listen_size[0] + 15, listen_y + 10),
+                            listen_color, 2, cv2.LINE_AA)
+                
+                cv2.putText(frame, listen_text, (listen_x, listen_y),
+                           cv2.FONT_HERSHEY_SIMPLEX, listen_scale, listen_color, listen_thickness, cv2.LINE_AA)
+            
+            # Afișare comandă detectată (dispare după 4 secunde)
+            if self.last_voice_command and (current_time - self.voice_command_time) < 4.0:
+                # Calculează transparența (fade out în ultimele 2 secunde)
+                time_elapsed = current_time - self.voice_command_time
+                alpha = 1.0 if time_elapsed < 2.0 else (4.0 - time_elapsed) / 2.0
+                
+                cmd_text = f'Am auzit: "{self.last_voice_command}"'
+                cmd_scale = min(self.width / 1400, self.height / 900) * 0.9
+                cmd_thickness = max(2, int(cmd_scale * 2.5))
+                cmd_size = cv2.getTextSize(cmd_text, cv2.FONT_HERSHEY_SIMPLEX, cmd_scale, cmd_thickness)[0]
+                
+                # Poziționare în partea de jos, centrat
+                cmd_x = (self.width - cmd_size[0]) // 2
+                cmd_y = self.height - 80
+                
+                # Box mare și vizibil
+                box_padding = 25
+                box_left = cmd_x - box_padding
+                box_right = cmd_x + cmd_size[0] + box_padding
+                box_top = cmd_y - cmd_size[1] - box_padding
+                box_bottom = cmd_y + box_padding
+                
+                # Fundal semi-transparent
+                overlay = frame.copy()
+                cv2.rectangle(overlay, (box_left, box_top), (box_right, box_bottom),
+                            (50, 50, 60), -1)
+                cv2.addWeighted(overlay, 0.85 * alpha, frame, 1 - 0.85 * alpha, 0, frame)
+                
+                # Bordură colorată
+                border_color = (100, 200, 255)  # Albastru
+                cv2.rectangle(frame, (box_left, box_top), (box_right, box_bottom),
+                            tuple(int(c * alpha) for c in border_color), 3, cv2.LINE_AA)
+                
+                # Text cu umbră
+                text_color = (255, 255, 255)
+                cv2.putText(frame, cmd_text, (cmd_x + 2, cmd_y + 2),
+                           cv2.FONT_HERSHEY_SIMPLEX, cmd_scale, (0, 0, 0), cmd_thickness, cv2.LINE_AA)
+                cv2.putText(frame, cmd_text, (cmd_x, cmd_y),
+                           cv2.FONT_HERSHEY_SIMPLEX, cmd_scale, 
+                           tuple(int(c * alpha) for c in text_color), cmd_thickness, cv2.LINE_AA)
+        
         return frame
     
     def run(self):
@@ -795,12 +1052,14 @@ class AccessibleMenu:
         cv2.resizeWindow(window_name, self.width, self.height)
         cv2.setMouseCallback(window_name, self.mouse_callback)
         
-        # Mesaj de bun venit optimizat fara diacritice
-        welcome_msg = "Bun venit! Aveti trei optiuni. " \
-                     "Unu: Traducere semne in text. " \
-                     "Doi: Mod demo imbunatatit. " \
-                     "Trei: Iesire. " \
-                     "Spuneti numarul dorit sau faceti click."
+        # Mesaj de bun venit îmbunătățit - mai natural și prietenos
+        welcome_msg = "Buna ziua! Bine ati venit la traducatorul de limbaj semne romanesc. " \
+                     "Aveti trei optiuni la dispozitie. " \
+                     "Optiunea unu: Traducere semne in text, cu camera live. " \
+                     "Optiunea doi: Mod demo imbunatatit, pentru testare. " \
+                     "Optiunea trei: Iesire din aplicatie. " \
+                     "Puteti spune numarul optiunii dorite, sau puteti face click cu mouse-ul. " \
+                     "Sunt aici sa va ajut!"
         
         self.speak(welcome_msg)
         
@@ -836,14 +1095,14 @@ class AccessibleMenu:
             if key == 255:
                 continue
             
-            # Navigare
+            # Navigare cu sunete plăcute
             if key in [82, ord('w'), ord('W')]:
                 self.selected_option = (self.selected_option - 1) % len(self.options)
-                self.beep(600, 0.05)
+                self.beep(523, 0.08)  # Nota Do (C) - sunet plăcut pentru navigare sus
             
             elif key in [84, ord('s'), ord('S')]:
                 self.selected_option = (self.selected_option + 1) % len(self.options)
-                self.beep(600, 0.05)
+                self.beep(494, 0.08)  # Nota Si (B) - sunet plăcut pentru navigare jos
             
             # Selectare directa
             elif key == ord('1'):
@@ -855,16 +1114,27 @@ class AccessibleMenu:
             elif key == ord('3'):
                 self._select_and_execute(2, "Iesire")
             
-            # Confirmare
+            # Confirmare cu sunet și mesaj plăcut
             elif key in [13, 32]:
-                self.beep(1200, 0.2)
+                self.beep(880, 0.15)  # Nota La (A)
+                self.stop_audio(silent=True)
+                
+                # Mesaj vocal de confirmare
+                option_names = ["traducerea", "demo-ul", "iesirea"]
+                if self.selected_option < len(option_names):
+                    msg = f"Perfect! Pornesc {option_names[self.selected_option]}."
+                    self.speak(msg, priority=True)
+                    time.sleep(1.2)
+                
                 self.voice_control_active = False
                 self.should_execute = True
                 time.sleep(0.1)
             
-            # Iesire
+            # Iesire cu mesaj prietenos
             elif key in [27, ord('q'), ord('Q')]:
-                self.beep(400, 0.3)
+                self.beep(392, 0.25)  # Nota Sol (G) - ton mai jos pentru ieșire
+                self.speak("La revedere! O zi placuta!", priority=True)
+                time.sleep(1.0)
                 self.voice_control_active = False
                 cv2.destroyAllWindows()
                 return False
@@ -886,7 +1156,7 @@ class AccessibleMenu:
             print("  '3' / 'trei' -> Iesire")
             print("  'stop' -> Opreste audio")
             print("  'start' -> Porneste audio")
-            print("  'ajutor' -> Repeta optiunile")
+            print("  'ajutor' -> Explicatie detaliata a optiunilor")
         
         print("OK Mouse:")
         print("  Click pe orice optiune -> Selecteaza si porneste")
