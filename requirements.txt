@@ -5,3 +5,8 @@ numpy>=1.24.0,<2.0.0
 scipy>=1.11.0
 scikit-learn>=1.3.0
 protobuf>=3.20.0,<5.0.0
+
+# Accesibilitate
+gtts>=2.3.0  # Google Text-to-Speech (voce naturala in romana)
+playsound>=1.3.0  # Redare audio
+SpeechRecognition>=3.10.0  # Recunoastere vocala

@@ -1,4 +1,0 @@
-Requirement already satisfied: protobuf in c:\python311\lib\site-packages (4.25.8)
-
-[notice] A new release of pip is available: 24.0 -> 26.0.1
-[notice] To update, run: python.exe -m pip install --upgrade pip

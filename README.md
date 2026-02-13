@@ -1,31 +1,76 @@
-Comenzi complete
+# Traducător Limbaj Semne Românesc (LSR)
 
-  # 1. Instalare dependente
-  pip install -r requirements.txt
+## Start Rapid
 
-  # 2. (Optional) Daca ai eroare protobuf, forteaza versiunea:
-  pip install "protobuf>=5.28.0"
+Pentru a porni demo-ul îmbunătățit direct:
 
-  # 3. Generare date sintetice (pentru test rapid)
-  python generate_synthetic_data.py
+```bash
+python start.py
+```
 
-  # 4. Antrenare model
-  python train_model.py --arch lstm_attention --epochs 50 --augment 3
+## Funcționalități Demo Îmbunătățit
 
-  # 5a. Mod DEMO (vizualizare landmarks, fara model)
-  python realtime.py --demo
+### Taste disponibile:
+- **Q / ESC** - Ieșire
+- **R** - Pornește/Oprește înregistrare video
+- **S** - Screenshot
+- **+/-** - Zoom in/out
+- **L** - Toggle landmarks (afișare/ascundere)
+- **T** - Toggle trails (urmă mâini)
+- **H** - Toggle heatmap (hartă activitate)
+- **U** - Toggle UI (interfață)
+- **I** - Toggle grafic FPS
+- **D** - Toggle comparație cu dataset
+- **F** - Fullscreen
+- **X** - Curăță trails și heatmap
 
-  # 5b. Mod COMPLET (inferenta cu modelul antrenat)
-  python realtime.py --threshold 0.7
+### Caracteristici:
+- ✅ Analiză calitate în timp real
+- ✅ Înregistrare video (salvat în `recordings/`)
+- ✅ Screenshot-uri (salvate în `screenshots/`)
+- ✅ Vizualizare trails pentru mâini
+- ✅ Heatmap activitate
+- ✅ Grafic FPS în timp real
+- ✅ Comparație cu gesturi din dataset
+- ✅ Statistici detaliate la final
 
-  # --- COLECTARE DATE REALE (inlocuieste datele sintetice) ---
-  # 6. Colecteaza semne reale cu webcam
-  python collect_data.py --sign buna --samples 50
-  python collect_data.py --sign multumesc --samples 50
-  python collect_data.py --all  # toate semnele
+## Alte Opțiuni
 
-  # 7. Re-antreneaza pe date reale
-  python train_model.py --arch lstm_attention --epochs 100 --augment 5
+### Meniu complet (cu control vocal):
+```bash
+python start_menu.py
+```
 
+### Traducere în timp real (cu model antrenat):
+```bash
+python realtime.py
+```
 
-  <img width="814" height="653" alt="image" src="https://github.com/user-attachments/assets/43d4fa21-3566-408f-b598-0b5183f8842a" />
+### Colectare date noi:
+```bash
+python collect_data.py
+```
+
+### Antrenare model:
+```bash
+python train_model.py
+```
+
+## Structură Fișiere
+
+- `start.py` - Start rapid demo îmbunătățit
+- `demo_enhanced.py` - Demo cu funcționalități avansate
+- `start_menu.py` - Meniu principal cu control vocal
+- `realtime.py` - Traducere în timp real
+- `config.py` - Configurație centrală
+- `model.py` - Arhitecturi model
+- `train_model.py` - Antrenare model
+- `collect_data.py` - Colectare date
+- `augmentation.py` - Augmentare date
+- `generate_synthetic_data.py` - Generare date sintetice
+
+## Cerințe
+
+```bash
+pip install -r requirements.txt
+```
