@@ -222,3 +222,11 @@ screenshots/
 .claude
 .kiro
 .copilot
+
+# Modele Whisper (se descarcă automat)
+~/.cache/whisper/
+
+# Fișiere temporare TTS și audio
+tts_*.mp3
+audio_*.wav
+test_tts.mp3
